@@ -2,8 +2,17 @@
 
 require 'db.php';
 
+// Validate ID
+if (!isset($_GET['id']) || !ctype_digit($_GET['id'])) {
+    header("Location: movies.php");
+    exit;
+}
+
+$id = (int)$_GET['id'];
+
 $errors = [];
 
+// Handle form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     $title   = trim($_POST['title'] ?? '');
@@ -40,14 +49,43 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
 
-        $sql  = "INSERT INTO movies (title, genre, rating, comment, image) VALUES (?, ?, ?, ?, ?)";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([$title, $genre, $rating, $comment, $imageName]);
+        if ($imageName) {
+            // Remove previous image file if exists and different
+            if (!empty($movie['image']) && $movie['image'] !== $imageName) {
+                $oldPath = __DIR__ . '/uploads/' . $movie['image'];
+                if (file_exists($oldPath)) @unlink($oldPath);
+            }
+            $stmt = $pdo->prepare(
+                "UPDATE movies SET title = ?, genre = ?, rating = ?, comment = ?, image = ? WHERE id = ?"
+            );
+            $stmt->execute([$title, $genre, $rating, $comment, $imageName, $id]);
+        } else {
+            $stmt = $pdo->prepare(
+                "UPDATE movies SET title = ?, genre = ?, rating = ?, comment = ? WHERE id = ?"
+            );
+            $stmt->execute([$title, $genre, $rating, $comment, $id]);
+        }
 
-        header("Location: index.php");
+        header("Location: movies.php");
         exit;
     }
 }
+
+// Fetch current movie data
+$stmt = $pdo->prepare("SELECT * FROM movies WHERE id = ?");
+$stmt->execute([$id]);
+$movie = $stmt->fetch();
+
+if (!$movie) {
+    header("Location: movies.php");
+    exit;
+}
+
+// If POST had errors, use submitted values; otherwise use DB values
+$formTitle   = $_POST['title']   ?? $movie['title'];
+$formGenre   = $_POST['genre']   ?? $movie['genre'];
+$formRating  = isset($_POST['rating']) ? (int)$_POST['rating'] : (int)$movie['rating'];
+$formComment = $_POST['comment'] ?? $movie['comment'];
 
 ?>
 <!DOCTYPE html>
@@ -55,7 +93,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>映画登録 | CineLog</title>
+    <title>映画編集 | CineLog</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -76,7 +114,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </header>
 
 <section class="form-section">
-    <h1>映画を登録する</h1>
+    <h1>映画を編集</h1>
 
     <?php if (!empty($errors)): ?>
     <div class="error-box">
@@ -86,15 +124,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     </div>
     <?php endif; ?>
 
-    <form method="POST" action="add-movie.php" enctype="multipart/form-data">
+    <form method="POST" action="edit-movie.php?id=<?= $id ?>" enctype="multipart/form-data">
 
-        <label for="title">映画タイトル</label>
+        <label for="title">タイトル</label>
         <input
             type="text"
             id="title"
             name="title"
-            placeholder="Interstellar"
-            value="<?= htmlspecialchars($_POST['title'] ?? '') ?>"
+            value="<?= htmlspecialchars($formTitle) ?>"
             required
         >
 
@@ -103,7 +140,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <?php
             $genres = ["SF","Action","Drama","Anime","Comedy"];
             foreach ($genres as $g):
-                $selected = (($_POST['genre'] ?? '') === $g) ? 'selected' : '';
+                $selected = ($formGenre === $g) ? 'selected' : '';
             ?>
             <option value="<?= $g ?>" <?= $selected ?>><?= $g ?></option>
             <?php endforeach; ?>
@@ -112,7 +149,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <label for="rating">評価</label>
         <select id="rating" name="rating">
             <?php for ($i = 5; $i >= 1; $i--):
-                $selected = (isset($_POST['rating']) && (int)$_POST['rating'] === $i) ? 'selected' : '';
+                $selected = ($formRating === $i) ? 'selected' : '';
             ?>
             <option value="<?= $i ?>" <?= $selected ?>><?= str_repeat("★", $i) ?></option>
             <?php endfor; ?>
@@ -123,14 +160,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             id="comment"
             name="comment"
             rows="5"
-            placeholder="映画の感想を書いてください"
             required
-        ><?= htmlspecialchars($_POST['comment'] ?? '') ?></textarea>
+        ><?= htmlspecialchars($formComment) ?></textarea>
 
         <label for="image">ポスター画像 (任意)</label>
         <input type="file" id="image" name="image" accept="image/*">
 
-        <button type="submit">登録する</button>
+        <button type="submit">更新する</button>
 
     </form>
 </section>
